@@ -19,6 +19,7 @@ Frank W. Zammetti, 3/18/2023
 """
 
 
+from datetime import timedelta
 import hashlib
 import json
 import os
@@ -156,7 +157,7 @@ def remove_nonexistent_files_from_database():
     rows = cursor.fetchall()
     for row in rows:
         if not os.path.exists(row[0]):
-            print("File " + row[0] + " in database not found on file system, removing from database")
+            log("File " + row[0] + " in database not found on file system, removing from database")
             # noinspection PyUnresolvedReferences
             g_conn.execute(f"""DELETE FROM files WHERE file=?""", (row[0],))
             # noinspection PyUnresolvedReferences
@@ -298,6 +299,8 @@ def scan_directory(current_dir):
 
             else:
 
+                file_start_time = time.time()
+
                 g_num_files += 1
 
                 update_status()
@@ -306,6 +309,7 @@ def scan_directory(current_dir):
                 filename = entry.name
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
+                log_verbose("file number ............................................ " + str(g_num_files))
                 log_verbose("filename ............................................... " + filename)
 
                 # Generate absolute path to file.  This is the unique key in the database.
@@ -326,6 +330,9 @@ def scan_directory(current_dir):
                     check_file(
                         absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified
                     )
+
+                log_verbose("Time taken for this file ............................... " +
+                    str(timedelta(seconds=time.time() - file_start_time)))
 
 
 def check_file(absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified):
@@ -393,11 +400,11 @@ def completion_footer(total_elapsed_time):
     log("Number of okay files ................................... " + str(g_num_okay))
     log("Number of files with bitrot ............................ " + str(g_num_bitrot))
     log("Number of files with possible file system corruption ... " + str(g_num_error))
-    log("Total elapsed time ..................................... " + str(round(total_elapsed_time, 2)) + "s")
+    log("Total elapsed time ..................................... " + str(timedelta(seconds=total_elapsed_time)))
     avg_per_file = 0
     if g_num_files > 0:
       avg_per_file = round(total_elapsed_time / g_num_files, 2)
-    log("Average time per file .................................. " + str(avg_per_file) + "s")
+    log("Average time per file .................................. " + str(timedelta(seconds=avg_per_file)))
 
 
 # ######################################################################################################################
