@@ -47,10 +47,10 @@ g_num_files_since_last_report = 0
 
 def log(message, no_newline = False):
     """
-    Log a regular message (will always be seen)
+    Log a regular message (will always be seen).
         Parameters:
-            message (str):     A message to log
-            no_newline (bool): True to NOT print a newline after the log message
+            message (str):     A message to log.
+            no_newline (bool): True to NOT print a newline after the log message.
     """
     if no_newline:
         print(message, end='')
@@ -63,9 +63,9 @@ def log(message, no_newline = False):
 
 def log_verbose(message):
     """
-    Log a message that should only appear when verbose mode is enabled
+    Log a message that should only appear when verbose mode is enabled.
         Parameters:
-            message (string): A message to log when verbose_output is enabled
+            message (string): A message to log when verbose_output is enabled.
     """
     if g_config_data["verbose_output"]:
         print(message)
@@ -155,6 +155,7 @@ def remove_nonexistent_files_from_database():
     cursor = g_conn.cursor()
     cursor.execute(f"""SELECT file FROM files""")
     rows = cursor.fetchall()
+
     for row in rows:
         if not os.path.exists(row[0]):
             log("File " + row[0] + " in database not found on file system, removing from database")
@@ -170,9 +171,9 @@ def calculate_checksum(absolute_path_to_file):
     """
     Calculate a checksum (hash) of a file.
         Parameters:
-            absolute_path_to_file (str): The complete, absolute path to the file
+            absolute_path_to_file (str): The complete, absolute path to the file.
         Returns:
-            A string that is a checksum (hash) of the file using the configured hash algorithm
+            A string that is a checksum (hash) of the file using the configured hash algorithm.
     """
 
     log_verbose("calculate_checksum() absolute_path_to_file ............. " + absolute_path_to_file)
@@ -201,9 +202,9 @@ def get_file_from_database(absolute_path_to_file):
     See if a file is in the database, and if it is, return its checksum and last modified, otherwise return an
     empty string.
         Parameters:
-            absolute_path_to_file (str): The complete, absolute path to the file
+            absolute_path_to_file (str): The complete, absolute path to the file.
         Returns:
-            The checksum and last modified timestamp for the file from the database
+            The checksum and last modified timestamp for the file from the database.
     """
 
     log_verbose("get_file_from_database() absolute_path_to_file ......... " + absolute_path_to_file)
@@ -225,9 +226,9 @@ def add_file_to_database(absolute_path_to_file, checksum, last_modified):
     """
     Add a file to the database.
         Parameters:
-            absolute_path_to_file (str): The complete, absolute path to the file
-            checksum (str):              The checksum of the file
-            last_modified (timestamp):   The last modified date/time of the file
+            absolute_path_to_file (str): The complete, absolute path to the file.
+            checksum (str):              The checksum of the file.
+            last_modified (timestamp):   The last modified date/time of the file.
     """
 
     global g_num_added
@@ -251,7 +252,7 @@ def add_file_to_database(absolute_path_to_file, checksum, last_modified):
 
 def update_status():
     """
-    Shows a status update periodically when not in verbose mode
+    Shows a status update periodically when not in verbose mode.
     """
     global g_num_files_since_last_report
     g_num_files_since_last_report += 1
@@ -260,9 +261,23 @@ def update_status():
         log("Number of files processed so far ... " + str(g_num_files))
 
 
+def convert_file_size_bytes(size):
+    """
+    Convert the length of a file in bytes to KB, MB, GB or TB (or bytes if not more than 1KB).
+        Parameters:
+            size (int): The file size in bytes.
+        Returns:
+            The file size expressed in bytes, KB, MB, GB or TB.
+    """
+    for unit in [ "bytes", "KB", "MB", "GB", "TB" ]:
+        if size < 1024.0:
+            return "%3.1f %s" % (size, unit)
+        size /= 1024.0
+
+
 def scan_directory(current_dir):
     """
-    Scans a directory and verifies all files in it, recursively calling this function again for subdirectories
+    Scans a directory and verifies all files in it, recursively calling this function again for subdirectories.
         Parameters:
             current_dir (str): The complete, absolute path of the directory
     """
@@ -310,7 +325,8 @@ def scan_directory(current_dir):
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
                 log_verbose("file number ............................................ " + str(g_num_files))
-                log_verbose("filename ............................................... " + filename)
+                log_verbose("filename ............................................... " + filename + " (" +
+                    str(convert_file_size_bytes(os.path.getsize(filename))) + ")")
 
                 # Generate absolute path to file.  This is the unique key in the database.
                 absolute_path_to_file = os.path.join(current_dir, filename)
@@ -340,11 +356,11 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
         Checks a file that is already in the database.  Determines if there is bit rot or possible file system
         corruption.
         Parameters:
-            absolute_path_to_file (str):        The complete, absolute path to the file
-            database_checksum (str):            The checksum previously calculated for the file from the database
-            database_last_modified (timestamp): The last modified date/time of the file from the database
-            checksum (str):                     The checksum calculated for the file just now
-            last_modified (timestamp):          The last modified date/time of the file from the file system
+            absolute_path_to_file (str):        The complete, absolute path to the file.
+            database_checksum (str):            The checksum previously calculated for the file from the database.
+            database_last_modified (timestamp): The last modified date/time of the file from the database.
+            checksum (str):                     The checksum calculated for the file just now.
+            last_modified (timestamp):          The last modified date/time of the file from the file system.
     """
 
     global g_num_bitrot
@@ -388,7 +404,7 @@ def completion_footer(total_elapsed_time):
     """
     Print the completion footer (notification that we're done and stats from the run).
         Parameters:
-            total_elapsed_time (float): How long the entire run took
+            total_elapsed_time (float): How long the entire run took.
     """
 
     log("\n********************************************* All done *********************************************\n")
