@@ -149,14 +149,18 @@ def remove_nonexistent_files_from_database():
 
     global g_num_removed
 
-    log_verbose("remove_nonexistent_files_from_database()\n")
+    log_verbose("remove_nonexistent_files_from_database()")
 
     # noinspection PyUnresolvedReferences
     cursor = g_conn.cursor()
     cursor.execute(f"""SELECT file FROM files""")
     rows = cursor.fetchall()
 
+    number_checked = 0
     for row in rows:
+        number_checked += 1
+        if number_checked % 10 == 0:
+            log("." + str(number_checked), True)
         if not os.path.exists(row[0]):
             log("File " + row[0] + " in database not found on file system, removing from database")
             # noinspection PyUnresolvedReferences
@@ -165,6 +169,7 @@ def remove_nonexistent_files_from_database():
             g_conn.commit()
             g_num_removed += 1
     cursor.close()
+    log("\n")
 
 
 def calculate_checksum(absolute_path_to_file):
@@ -320,18 +325,17 @@ def scan_directory(current_dir):
 
                 update_status()
 
-                # Pull out just filename.
+                # Pull out the filename and generate absolute path to file.  This is the unique key in the database.
                 filename = entry.name
+                absolute_path_to_file = os.path.join(current_dir, filename)
+
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
                 log_verbose("file number ............................................ " + str(g_num_files))
                 log_verbose("filename ............................................... " + filename + " (" +
-                    str(convert_file_size_bytes(os.path.getsize(filename))) + ")")
+                    str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))) + ")")
 
-                # Generate absolute path to file.  This is the unique key in the database.
-                absolute_path_to_file = os.path.join(current_dir, filename)
-
-                # Calculate the checksum and last modified date of the file.
+                # Calculate the checksum and last modified date of the file off the file system.
                 checksum = calculate_checksum(absolute_path_to_file)
                 last_modified = pathlib.Path(absolute_path_to_file).stat().st_mtime
 
