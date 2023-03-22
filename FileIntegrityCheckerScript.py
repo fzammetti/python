@@ -82,10 +82,10 @@ def read_in_config_file():
 
     {
       "verbose_output": true|false,
-      "dirs_to_scan": [
-        "C:\\DIRECTORY\\SUBDIRECTORY", ...
+      "directories_to_scan": [
+        { "path : "C:\\DIRECTORY\\SUBDIRECTORY", "scan_subdirectories" : true|false },
+        ...
       ],
-      "scan_subdirectories": true|false,
       "output_to_file": true|false,
       "hash_algorithm": "md5|sha1|sha224|sha256|sha384|sha512"
     }
@@ -111,20 +111,16 @@ def read_in_config_file():
             os.remove(os.path.join(g_script_directory, "output.txt"))
         global g_output_file
         g_output_file = open(os.path.join(g_script_directory, "output.txt"), "a")
-        g_output_file.write("Logging to output file requested and started\n\n")
+        g_output_file.write("Logging to output file requested and started\n")
 
     # Log the config file values for reference.
-    print("config_data ... " + str(g_config_data))
-
-    log("Config file read and processed")
+    log("config_data ... " + str(g_config_data))
 
 
 def open_create_database():
     """
     Open the SQLite database, creating it if it doesn't already exist.
     """
-
-    log_verbose("open_create_database()")
 
     absolute_path_to_database_file = os.path.join(g_script_directory, "database.db")
     global g_conn
@@ -137,7 +133,6 @@ def open_create_database():
             last_modified REAL
         );
     """)
-    log("Database opened (or created)")
 
 
 def remove_nonexistent_files_from_database():
@@ -149,8 +144,6 @@ def remove_nonexistent_files_from_database():
 
     global g_num_removed
 
-    log_verbose("remove_nonexistent_files_from_database()")
-
     # noinspection PyUnresolvedReferences
     cursor = g_conn.cursor()
     cursor.execute(f"""SELECT file FROM files""")
@@ -159,10 +152,10 @@ def remove_nonexistent_files_from_database():
     number_checked = 0
     for row in rows:
         number_checked += 1
-        # Print a status update every 10,000 files checked.  This seems to be a good compromise on an average system
+        # Print a status update every 5,000 files checked.  This seems to be a good compromise on an average system
         # between updating too frequently and appearing to be stuck due to no update.
-        if number_checked % 10000 == 0:
-            log("." + str(number_checked), True)
+        if number_checked % 5000 == 0:
+            log("Files checked so far: " + str(number_checked))
         if not os.path.exists(row[0]):
             log("File " + row[0] + " in database not found on file system, removing from database")
             # noinspection PyUnresolvedReferences
@@ -171,7 +164,6 @@ def remove_nonexistent_files_from_database():
             g_conn.commit()
             g_num_removed += 1
     cursor.close()
-    log("\n")
 
 
 def calculate_checksum(absolute_path_to_file):
@@ -182,8 +174,6 @@ def calculate_checksum(absolute_path_to_file):
         Returns:
             A string that is a checksum (hash) of the file using the configured hash algorithm.
     """
-
-    log_verbose("calculate_checksum() absolute_path_to_file ............. " + absolute_path_to_file)
 
     # Calculate checksum (SHA256 hash).
     with open(absolute_path_to_file, "rb") as file:
@@ -200,7 +190,7 @@ def calculate_checksum(absolute_path_to_file):
             checksum = hashlib.sha384(file_bytes).hexdigest()
         elif g_config_data["hash_algorithm"] == "sha512":
             checksum = hashlib.sha512(file_bytes).hexdigest()
-    log_verbose("calculate_checksum() calculated checksum ............... " + checksum)
+    log_verbose("Calculated checksum .............. " + checksum)
     return checksum
 
 
@@ -214,8 +204,6 @@ def get_file_from_database(absolute_path_to_file):
             The checksum and last modified timestamp for the file from the database.
     """
 
-    log_verbose("get_file_from_database() absolute_path_to_file ......... " + absolute_path_to_file)
-
     checksum = None
     last_modified = None
     with g_conn:
@@ -224,8 +212,8 @@ def get_file_from_database(absolute_path_to_file):
         for file_data in result_set:
             checksum = file_data["checksum"]
             last_modified = file_data["last_modified"]
-            log_verbose("get_file_from_database() checksum from database ........ " + checksum)
-            log_verbose("get_file_from_database() last_modified from database ... " + str(last_modified))
+            log_verbose("Checksum from database ........... " + checksum)
+            log_verbose("Last modified from database ...... " + str(last_modified))
         return checksum, last_modified
 
 
@@ -240,10 +228,7 @@ def add_file_to_database(absolute_path_to_file, checksum, last_modified):
 
     global g_num_added
 
-    log_verbose("add_file_to_database() absolute_path_to_file ........... " + absolute_path_to_file)
-    log_verbose("add_file_to_database() checksum ........................ " + checksum)
-    log_verbose("add_file_to_database() last_modified ................... " + str(last_modified))
-    log("add_file_to_database() File " + absolute_path_to_file + " is NOT in database, adding")
+    log("File " + absolute_path_to_file + " is NOT in database, adding")
 
     # Write to database.
     # noinspection PyUnresolvedReferences,SqlResolve
@@ -265,7 +250,7 @@ def update_status():
     g_num_files_since_last_report += 1
     if g_num_files_since_last_report == 10:
         g_num_files_since_last_report = 0
-        log("Number of files processed so far ... " + str(g_num_files))
+        log("Number of files processed so far: " + str(g_num_files))
 
 
 def convert_file_size_bytes(size):
@@ -282,25 +267,26 @@ def convert_file_size_bytes(size):
         size /= 1024.0
 
 
-def scan_directory(current_dir):
+def scan_directory(path, scan_subdirectories):
     """
     Scans a directory and verifies all files in it, recursively calling this function again for subdirectories.
         Parameters:
-            current_dir (str): The complete, absolute path of the directory
+            path (str):                 The complete, absolute path of the directory.
+            scan_subdirectories (bool): True to scan subdirectories, false to skip them.
     """
 
     global g_num_dirs
     global g_num_files
 
-    log_verbose("==========================================================================================" +
+    log_verbose("\n==========================================================================================" +
                 "==========")
-    log_verbose("Current directory ...................................... " + current_dir)
+    log_verbose("\nCurrent directory: " + path + "\n")
 
     # Set working directory, log error if not valid.
     try:
-        os.chdir(current_dir)
+        os.chdir(path)
     except FileNotFoundError:
-        log("!!!!! Invalid directory !!!!!")
+        log("!!!!! INVALID DIRECTORY")
         return
 
     g_num_dirs += 1
@@ -314,8 +300,8 @@ def scan_directory(current_dir):
             # If we hit a subdirectory, and we're configured to scan subdirectories, then recursively call this
             # function for that subdirectory, otherwise for a file just process it.
             if not entry.is_file():
-                if g_config_data["scan_subdirectories"]:
-                    scan_directory(entry.path)
+                if scan_subdirectories:
+                    scan_directory(entry.path, scan_subdirectories)
                 else:
                     continue
 
@@ -329,17 +315,18 @@ def scan_directory(current_dir):
 
                 # Pull out the filename and generate absolute path to file.  This is the unique key in the database.
                 filename = entry.name
-                absolute_path_to_file = os.path.join(current_dir, filename)
+                absolute_path_to_file = os.path.join(path, filename)
 
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
-                log_verbose("file number ............................................ " + str(g_num_files))
-                log_verbose("filename ............................................... " + filename + " (" +
+                log_verbose("File number ...................... " + str(g_num_files))
+                log_verbose("Filename ......................... " + filename + " (" +
                     str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))) + ")")
 
                 # Calculate the checksum and last modified date of the file off the file system.
                 checksum = calculate_checksum(absolute_path_to_file)
                 last_modified = pathlib.Path(absolute_path_to_file).stat().st_mtime
+                log_verbose("Last modified from file system ... " + str(last_modified))
 
                 # Get the checksum and last modified date of the file from the database, if present.
                 database_checksum, database_last_modified = get_file_from_database(absolute_path_to_file)
@@ -353,8 +340,7 @@ def scan_directory(current_dir):
                         absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified
                     )
 
-                log_verbose("Time taken for this file ............................... " +
-                    str(timedelta(seconds=time.time() - file_start_time)))
+                log_verbose("Time taken for this file: " + str(timedelta(seconds=time.time() - file_start_time)))
 
 
 def check_file(absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified):
@@ -374,25 +360,24 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
     global g_num_okay
     global g_num_updated
 
-    log_verbose("check_file() File is in database")
-
     # If the last modified date matches, compare the checksums.
     if last_modified == database_last_modified:
-        log_verbose("check_file() Check 1: File system last modified matches database - PASS")
+        log_verbose("Check 1: File system last modified matches database - PASS")
         # If the checksums match, we're good.
         if database_checksum == checksum:
-            log_verbose("check_file() Check 2: Calculated checksum matches database - PASS - file is okay")
+            log_verbose("Check 2: Calculated checksum matches database - PASS")
+            log_verbose("File is okay")
             g_num_okay += 1
         # If the checksums do NOT match, it's bitrot.
         else:
-            log("!!!!! CHECK 2: CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BITROT !!!!!")
+            log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BITROT")
             g_num_bitrot += 1
 
     # If last modified does NOT match, there's more work to do.
     else:
-        log_verbose("check_file() Check 1: File system last modified does NOT match database, comparing further")
+        log_verbose("File system last modified does NOT match database, comparing further")
         if last_modified > database_last_modified:
-            log_verbose("check_file() Check 1: File system last modified is newer than database, updating database")
+            log_verbose("File system last modified is newer than database, updating database")
             # noinspection PyUnresolvedReferences
             g_conn.execute(f"""
                 UPDATE files SET checksum=?, last_modified=? WHERE file=?
@@ -401,8 +386,8 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
             g_conn.commit()
             g_num_updated += 1
         else:
-            log("!!!!! CHECK 1: FILE SYSTEM LAST MODIFIED IS OLDER THAN WDATABASE FOR FILE " +
-                absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION !!!!!")
+            log("!!!!! FILE SYSTEM LAST MODIFIED IS OLDER THAN DATABASE FOR FILE " +
+                absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION")
             g_num_error += 1
 
 
@@ -441,27 +426,31 @@ def main():
     global g_num_dirs
     global g_num_files
 
-    print("\nFile Integrity Checker Script v1.0 by Frank W. Zammetti\n")
+    print("\nFile Integrity Checker Script v1.0 by Frank W. Zammetti")
+
+    print("\nAttempting to read config file...")
+    read_in_config_file()
+    log("Config file read and processed successfully")
+
+    log("\nOpening (or creating) database...")
+    open_create_database()
+    log("...Done")
+
+    log("\n****************************************** Beginning Work ******************************************")
 
     start_time = time.time()
-
-    read_in_config_file()
-
-    log("")
-
-    open_create_database()
-
-    log("\nBeginning work!\n")
 
 # TODO: Checksum the DB file, compare against two copies stored in plain text file. This ensures the DB itself doesn't
 # get corrupted. Also, copy DB file if good, plus checksum files, so there is always a Last Known Good copy.
 
+    log("\nRemoving non-existent files from database...")
     remove_nonexistent_files_from_database()
+    log("...Done")
 
-    log("\nNon-existent files removed from database, file scan beginning...\n")
+    log("\nVerifying files...")
 
-    for current_dir in g_config_data["dirs_to_scan"]:
-        scan_directory(current_dir)
+    for current_dir in g_config_data["directories_to_scan"]:
+        scan_directory(current_dir["path"], current_dir["scan_subdirectories"])
 
     total_elapsed_time = time.time() - start_time
 
