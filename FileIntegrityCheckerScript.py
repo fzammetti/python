@@ -159,7 +159,9 @@ def remove_nonexistent_files_from_database():
     number_checked = 0
     for row in rows:
         number_checked += 1
-        if number_checked % 10 == 0:
+        # Print a status update every 10,000 files checked.  This seems to be a good compromise on an average system
+        # between updating too frequently and appearing to be stuck due to no update.
+        if number_checked % 10000 == 0:
             log("." + str(number_checked), True)
         if not os.path.exists(row[0]):
             log("File " + row[0] + " in database not found on file system, removing from database")
@@ -455,6 +457,8 @@ def main():
 # get corrupted. Also, copy DB file if good, plus checksum files, so there is always a Last Known Good copy.
 
     remove_nonexistent_files_from_database()
+
+    log("\nNon-existent files removed from database, file scan beginning...\n")
 
     for current_dir in g_config_data["dirs_to_scan"]:
         scan_directory(current_dir)
