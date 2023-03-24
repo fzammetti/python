@@ -190,7 +190,7 @@ def calculate_checksum(absolute_path_to_file):
             checksum = hashlib.sha384(file_bytes).hexdigest()
         elif g_config_data["hash_algorithm"] == "sha512":
             checksum = hashlib.sha512(file_bytes).hexdigest()
-    log_verbose("Calculated checksum .............. " + checksum)
+    log_verbose("Calculated checksum .................. " + checksum)
     return checksum
 
 
@@ -212,8 +212,8 @@ def get_file_from_database(absolute_path_to_file):
         for file_data in result_set:
             checksum = file_data["checksum"]
             last_modified = file_data["last_modified"]
-            log_verbose("Checksum from database ........... " + checksum)
-            log_verbose("Last modified from database ...... " + str(last_modified))
+            log_verbose("Checksum from DB ..................... " + checksum)
+            log_verbose("Last modified from DB ................ " + str(last_modified))
         return checksum, last_modified
 
 
@@ -319,14 +319,15 @@ def scan_directory(path, scan_subdirectories):
 
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
-                log_verbose("File number ...................... " + str(g_num_files))
-                log_verbose("Filename ......................... " + filename + " (" +
-                    str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))) + ")")
+                log_verbose("File number .......................... " + str(g_num_files))
+                log_verbose("Filename ............................. " + filename)
+                log_verbose("File size ............................ " +
+                    str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))))
 
                 # Calculate the checksum and last modified date of the file off the file system.
                 checksum = calculate_checksum(absolute_path_to_file)
                 last_modified = pathlib.Path(absolute_path_to_file).stat().st_mtime
-                log_verbose("Last modified from file system ... " + str(last_modified))
+                log_verbose("Last modified from FS ................ " + str(last_modified))
 
                 # Get the checksum and last modified date of the file from the database, if present.
                 database_checksum, database_last_modified = get_file_from_database(absolute_path_to_file)
@@ -340,7 +341,8 @@ def scan_directory(path, scan_subdirectories):
                         absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified
                     )
 
-                log_verbose("Time taken for this file: " + str(timedelta(seconds=time.time() - file_start_time)))
+                log_verbose("Time taken for this file ............. " +
+                    str(timedelta(seconds=time.time() - file_start_time)))
 
 
 def check_file(absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified):
@@ -362,10 +364,10 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
 
     # If the last modified date matches, compare the checksums.
     if last_modified == database_last_modified:
-        log_verbose("Check 1: File system last modified matches database - PASS")
+        log_verbose("Chk 1: FS last modified matches DB ... PASS")
         # If the checksums match, we're good.
         if database_checksum == checksum:
-            log_verbose("Check 2: Calculated checksum matches database - PASS")
+            log_verbose("Chk 2: Checksum matches DB ........... PASS")
             log_verbose("File is okay")
             g_num_okay += 1
         # If the checksums do NOT match, it's bitrot.
