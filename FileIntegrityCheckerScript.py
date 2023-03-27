@@ -401,6 +401,7 @@ def completion_footer(total_elapsed_time):
     """
 
     log("\n********************************************* All done *********************************************\n")
+    log("End time ............................................... " + time.ctime())
     log("Number of new files added to database .................. " + str(g_num_added))
     log("Number of files removed from database .................. " + str(g_num_removed))
     log("Number of files updated in database .................... " + str(g_num_updated))
@@ -429,6 +430,7 @@ def main():
     global g_num_files
 
     print("\nFile Integrity Checker Script v1.0 by Frank W. Zammetti")
+    print("\nStart time: " + time.ctime())
 
     print("\nAttempting to read config file...")
     read_in_config_file()
