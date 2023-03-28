@@ -43,6 +43,7 @@ g_num_okay = 0
 g_num_removed = 0
 g_num_updated = 0
 g_num_files_since_last_report = 0
+g_total_files_to_scan = 0
 
 
 def log(message, no_newline = False):
@@ -250,7 +251,7 @@ def update_status():
     g_num_files_since_last_report += 1
     if g_num_files_since_last_report == 10:
         g_num_files_since_last_report = 0
-        log("Number of files processed so far: " + str(g_num_files))
+        log("Number of files processed so far: " + str(g_num_files) + " of " + str(g_total_files_to_scan))
 
 
 def convert_file_size_bytes(size):
@@ -319,7 +320,8 @@ def scan_directory(path, scan_subdirectories):
 
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
-                log_verbose("File number .......................... " + str(g_num_files))
+                log_verbose("File number .......................... " + str(g_num_files) + " of " +
+                    str(g_total_files_to_scan))
                 log_verbose("Filename ............................. " + filename)
                 log_verbose("File size ............................ " +
                     str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))))
@@ -417,6 +419,26 @@ def completion_footer(total_elapsed_time):
     log("Average time per file .................................. " + str(timedelta(seconds=avg_per_file)))
 
 
+def count_files_in_directory(directory, scan_subdirectories):
+    """
+    Counts the number of files in a directory, and optionally all of its subdirectories too.
+        Parameters:
+            directory (string)            The directory to scan.
+            scan_subdirectories (boolean) True to scan subdirectories as well, false if not.
+        Returns:
+            The number of files.
+    """
+    count = 0
+    if scan_subdirectories:
+        for root_dir, cur_dir, files in os.walk(directory):
+            count += len(files)
+    else:
+        for path in os.listdir(directory):
+            if os.path.isfile(os.path.join(directory, path)):
+                count += 1
+    return count
+
+
 # ######################################################################################################################
 # ######################################################################################################################
 
@@ -428,6 +450,7 @@ def main():
 
     global g_num_dirs
     global g_num_files
+    global g_total_files_to_scan
 
     print("\nFile Integrity Checker Script v1.0 by Frank W. Zammetti")
     print("\nStart time: " + time.ctime())
@@ -450,6 +473,11 @@ def main():
     log("\nRemoving non-existent files from database...")
     remove_nonexistent_files_from_database()
     log("...Done")
+
+    log("\nCounting files to verify...")
+    for current_dir in g_config_data["directories_to_scan"]:
+        g_total_files_to_scan += count_files_in_directory(current_dir["path"], current_dir["scan_subdirectories"])
+    log("...there are " + str(g_total_files_to_scan) + " files to verify")
 
     log("\nVerifying files...")
 
