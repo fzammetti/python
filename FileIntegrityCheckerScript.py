@@ -268,6 +268,26 @@ def convert_file_size_bytes(size):
         size /= 1024.0
 
 
+def count_files_in_directory(directory, scan_subdirectories):
+    """
+    Counts the number of files in a directory, and optionally all of its subdirectories too.
+        Parameters:
+            directory (string)            The directory to scan.
+            scan_subdirectories (boolean) True to scan subdirectories as well, false if not.
+        Returns:
+            The number of files.
+    """
+    count = 0
+    if scan_subdirectories:
+        for root_dir, cur_dir, files in os.walk(directory):
+            count += len(files)
+    else:
+        for path in os.listdir(directory):
+            if os.path.isfile(os.path.join(directory, path)):
+                count += 1
+    return count
+
+
 def scan_directory(path, scan_subdirectories):
     """
     Scans a directory and verifies all files in it, recursively calling this function again for subdirectories.
@@ -326,9 +346,12 @@ def scan_directory(path, scan_subdirectories):
                 log_verbose("File size ............................ " +
                     str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))))
 
-                # Calculate the checksum and last modified date of the file off the file system.
+                # Calculate the checksum and last modified date of the file off the file system.  Note that the
+                # last_modified value must be rounded or else we'll lose precision when saved to SQLite (since it
+                # only guarantees 15 digits of precision), which results in false reports of possible file system
+                # corruption.
                 checksum = calculate_checksum(absolute_path_to_file)
-                last_modified = pathlib.Path(absolute_path_to_file).stat().st_mtime
+                last_modified = round(pathlib.Path(absolute_path_to_file).stat().st_mtime, 5)
                 log_verbose("Last modified from FS ................ " + str(last_modified))
 
                 # Get the checksum and last modified date of the file from the database, if present.
@@ -417,26 +440,6 @@ def completion_footer(total_elapsed_time):
     if g_num_files > 0:
       avg_per_file = round(total_elapsed_time / g_num_files, 2)
     log("Average time per file .................................. " + str(timedelta(seconds=avg_per_file)))
-
-
-def count_files_in_directory(directory, scan_subdirectories):
-    """
-    Counts the number of files in a directory, and optionally all of its subdirectories too.
-        Parameters:
-            directory (string)            The directory to scan.
-            scan_subdirectories (boolean) True to scan subdirectories as well, false if not.
-        Returns:
-            The number of files.
-    """
-    count = 0
-    if scan_subdirectories:
-        for root_dir, cur_dir, files in os.walk(directory):
-            count += len(files)
-    else:
-        for path in os.listdir(directory):
-            if os.path.isfile(os.path.join(directory, path)):
-                count += 1
-    return count
 
 
 # ######################################################################################################################
