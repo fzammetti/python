@@ -1,22 +1,4 @@
 #!/usr/bin/env python
-"""
-File Integrity Checker Script v1.0
-
-This script is used to validating files to ensure their integrity.  This is accomplished by scanning a configured set
-of directories (optionally including subdirectories) and for each file encountered, calculating a checksum (hash) for
-it and storing that hash, along with the last modified date/time on the file, in a database.  In subsequent runs, the
-entries in the database are compared to the current state of the file on the file system.  Thr rules applied are:
-
-1. Any files in the database that are no longer found on the file system are removed from the database
-2. If a file on the file system is not yet in the database, it is added to the database
-3. For files in the database that are on the file system, the last modified date/time is compared.  If that of the
-   file on the file system is newer, the database entry is updated.  If it's older, this is reported as a possible
-   file system corruption (user will need to manually investigate).
-4. If the last modified date/time match, then the checksum is recalculated.  If it matches what's in the database then
-   the file is considered okay.  If they don't match then a mismatch is reported as probably bit rot.
-
-Frank W. Zammetti, 3/18/2023
-"""
 
 
 from datetime import timedelta
@@ -56,20 +38,6 @@ g_total_files_to_scan = 0
 def read_in_config_file():
     """
     Read in the config file, abort if it doesn't exist.
-
-    The config file is required and is in the form of JSON:
-
-    {
-      "verbose_output": true|false,
-      "directories_to_scan": [
-        { "path : "C:\\DIRECTORY\\SUBDIRECTORY", "scan_subdirectories" : true|false },
-        ...
-      ],
-      "output_to_file": true|false,
-      "hash_algorithm": "md5|sha1|sha224|sha256|sha384|sha512"
-    }
-
-    All elements are required.
     """
 
     # Make sure the config file exists, quit if not.
@@ -163,7 +131,7 @@ def remove_nonexistent_files_from_database():
     """
     Removes any files from the database that are not on the file system.  This must be done otherwise later if we add
     a file with a name that's already in the database then, assuming it's contents are different, it will register
-    as bitrot, but that would be a false result.
+    as bit rot, but that would be a false result.
     """
 
     global g_num_removed
@@ -297,9 +265,9 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
             log_verbose("Chk 2: Checksum matches DB ........... PASS")
             log_verbose("File is okay")
             g_num_okay += 1
-        # If the checksums do NOT match, it's bitrot.
+        # If the checksums do NOT match, it's bit rot.
         else:
-            log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BITROT")
+            log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BIT ROT")
             g_num_bitrot += 1
 
     # If last modified does NOT match, there's more work to do.
@@ -394,7 +362,7 @@ def completion_footer(total_elapsed_time):
     log("Total number of directories scanned .................... " + str(g_num_dirs))
     log("Total number of files checked .......................... " + str(g_num_files))
     log("Number of okay files ................................... " + str(g_num_okay))
-    log("Number of files with bitrot ............................ " + str(g_num_bitrot))
+    log("Number of files with bit rot ........................... " + str(g_num_bitrot))
     log("Number of files with possible file system corruption ... " + str(g_num_error))
     log("Total elapsed time ..................................... " + str(timedelta(seconds=total_elapsed_time)))
     avg_per_file = 0
@@ -443,23 +411,22 @@ def calculate_checksum(absolute_path_to_file):
         Parameters:
             absolute_path_to_file (str): The complete, absolute path to the file.
         Returns:
-            A string that is a checksum (hash) of the file using the configured hash algorithm.
+            A string that is a checksum (hash) of the file using the configured checksum (hash) algorithm.
     """
 
-    # Calculate checksum (SHA256 hash).
     with open(absolute_path_to_file, "rb") as file:
         file_bytes = file.read()
-        if g_config_data["hash_algorithm"] == "md5":
+        if g_config_data["checksum_algorithm"] == "md5":
             checksum = hashlib.md5(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha1":
+        elif g_config_data["checksum_algorithm"] == "sha1":
             checksum = hashlib.sha1(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha224":
+        elif g_config_data["checksum_algorithm"] == "sha224":
             checksum = hashlib.sha224(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha256":
+        elif g_config_data["checksum_algorithm"] == "sha256":
             checksum = hashlib.sha256(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha384":
+        elif g_config_data["checksum_algorithm"] == "sha384":
             checksum = hashlib.sha384(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha512":
+        elif g_config_data["checksum_algorithm"] == "sha512":
             checksum = hashlib.sha512(file_bytes).hexdigest()
     log_verbose("Calculated checksum .................. " + checksum)
     return checksum
@@ -518,7 +485,7 @@ def main():
 
     print("\nAttempting to read config file...")
     read_in_config_file()
-    log("Config file read and processed successfully")
+    log("...Done")
 
     log("\nOpening (or creating) database...")
     open_create_database()
@@ -539,22 +506,25 @@ def main():
     log("\nCounting files to verify...")
     for current_dir in g_config_data["directories_to_scan"]:
         g_total_files_to_scan += count_files_in_directory(current_dir["path"], current_dir["scan_subdirectories"])
-    log("...there are " + str(g_total_files_to_scan) + " files to verify")
+    log("...Done (" + str(g_total_files_to_scan) + ")")
 
     log("\nVerifying files...")
-
     for current_dir in g_config_data["directories_to_scan"]:
         scan_directory(current_dir["path"], current_dir["scan_subdirectories"])
 
     total_elapsed_time = time.time() - start_time
 
+    # Recalculate and record the checksum for the database file to account for any changes during this run.
     checksum_database()
 
+    # Display completion footer.
     completion_footer(total_elapsed_time)
 
+    # Cleanup.
     if g_config_data["output_to_file"]:
         # noinspection PyUnresolvedReferences
         g_output_file.close()
+
 
 if __name__ == "__main__":
     main()
