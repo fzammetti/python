@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import sqlite3
 import sys
 import time
@@ -31,6 +32,7 @@ import time
 
 # Global variables.
 g_script_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
+g_absolute_path_to_database_file = os.path.join(g_script_directory, "database.db")
 g_conn = None
 g_config_data = { }
 g_output_file = None
@@ -46,33 +48,9 @@ g_num_files_since_last_report = 0
 g_total_files_to_scan = 0
 
 
-def log(message, no_newline = False):
-    """
-    Log a regular message (will always be seen).
-        Parameters:
-            message (str):     A message to log.
-            no_newline (bool): True to NOT print a newline after the log message.
-    """
-    if no_newline:
-        print(message, end='')
-    else:
-        print(message)
-    if g_config_data["output_to_file"]:
-        # noinspection PyUnresolvedReferences
-        g_output_file.write(message + "\n")
-
-
-def log_verbose(message):
-    """
-    Log a message that should only appear when verbose mode is enabled.
-        Parameters:
-            message (string): A message to log when verbose_output is enabled.
-    """
-    if g_config_data["verbose_output"]:
-        print(message)
-        if g_config_data["output_to_file"]:
-            # noinspection PyUnresolvedReferences
-            g_output_file.write(message + "\n")
+# ----------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------- Main Operational Functions ---------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 
 
 def read_in_config_file():
@@ -97,7 +75,7 @@ def read_in_config_file():
     # Make sure the config file exists, quit if not.
     absolute_path_to_config_file = os.path.join(g_script_directory, "config.json")
     if not os.path.exists(absolute_path_to_config_file):
-        print("config.json file does not exist, exiting")
+        print("!!!!! CONFIG.JSON FILE DOES NOT EXIST, ABORTING")
         quit()
 
     # Read in the config file.
@@ -123,9 +101,8 @@ def open_create_database():
     Open the SQLite database, creating it if it doesn't already exist.
     """
 
-    absolute_path_to_database_file = os.path.join(g_script_directory, "database.db")
     global g_conn
-    g_conn = sqlite3.connect(absolute_path_to_database_file)
+    g_conn = sqlite3.connect(g_absolute_path_to_database_file)
     g_conn.row_factory = sqlite3.Row
     g_conn.execute("""
         CREATE TABLE IF NOT EXISTS files (
@@ -134,6 +111,52 @@ def open_create_database():
             last_modified REAL
         );
     """)
+
+
+def validate_database():
+    """
+    Validates the database, NASA space shuttle-style: two checksum files are compared to a real-time checksum
+    calculation and if they don't match, we abort the whole show.  This function also handles the case where the
+    database was just created, in which case there will be no checksum files yet, so they will be created.
+    """
+    absolute_path_to_db_checksum_1_file = os.path.join(g_script_directory, "db_checksum_1.md5")
+    absolute_path_to_db_checksum_2_file = os.path.join(g_script_directory, "db_checksum_2.md5")
+    # If both files do not exist, that should mean the database was just created, so checksum it now, which will
+    # create the two checksum files.
+    if not os.path.exists(absolute_path_to_db_checksum_1_file) and \
+        not os.path.exists(absolute_path_to_db_checksum_2_file):
+        checksum_database()
+    # Read in the two checksum files.
+    with open(absolute_path_to_db_checksum_1_file) as f:
+        checksum_1 = f.readlines()[0]
+        f.close()
+    log_verbose("Database file checksum 1 ............. " + str(checksum_1))
+    with open(absolute_path_to_db_checksum_2_file) as f:
+        checksum_2 = f.readlines()[0]
+        f.close()
+    log_verbose("Database file checksum 2 ............. " + str(checksum_2))
+    # Calculate the database file's current checksum and make sure they all match, abort if not.
+    realtime_checksum = calculate_checksum(g_absolute_path_to_database_file)
+    log_verbose("Realtime checksum .................... " + str(realtime_checksum))
+    if realtime_checksum == checksum_1 and realtime_checksum == checksum_2:
+        # Make a copy of the database file.
+        shutil.copyfile(g_absolute_path_to_database_file, os.path.join(g_script_directory, "database.db.backup"))
+    else:
+        print("!!!!! DATABASE IS CORRUPT, ABORTING")
+        quit()
+
+
+def checksum_database():
+    """
+    Calculates a checksum for the database file and writes two copies to two separate files for later validation.
+    """
+    db_checksum = calculate_checksum(g_absolute_path_to_database_file)
+    with open(os.path.join(g_script_directory, "db_checksum_1.md5"), "w") as f:
+       f.write(db_checksum)
+       f.close()
+    with open(os.path.join(g_script_directory, "db_checksum_2.md5"), "w") as f:
+       f.write(db_checksum)
+       f.close()
 
 
 def remove_nonexistent_files_from_database():
@@ -165,127 +188,6 @@ def remove_nonexistent_files_from_database():
             g_conn.commit()
             g_num_removed += 1
     cursor.close()
-
-
-def calculate_checksum(absolute_path_to_file):
-    """
-    Calculate a checksum (hash) of a file.
-        Parameters:
-            absolute_path_to_file (str): The complete, absolute path to the file.
-        Returns:
-            A string that is a checksum (hash) of the file using the configured hash algorithm.
-    """
-
-    # Calculate checksum (SHA256 hash).
-    with open(absolute_path_to_file, "rb") as file:
-        file_bytes = file.read()
-        if g_config_data["hash_algorithm"] == "md5":
-            checksum = hashlib.md5(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha1":
-            checksum = hashlib.sha1(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha224":
-            checksum = hashlib.sha224(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha256":
-            checksum = hashlib.sha256(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha384":
-            checksum = hashlib.sha384(file_bytes).hexdigest()
-        elif g_config_data["hash_algorithm"] == "sha512":
-            checksum = hashlib.sha512(file_bytes).hexdigest()
-    log_verbose("Calculated checksum .................. " + checksum)
-    return checksum
-
-
-def get_file_from_database(absolute_path_to_file):
-    """
-    See if a file is in the database, and if it is, return its checksum and last modified, otherwise return an
-    empty string.
-        Parameters:
-            absolute_path_to_file (str): The complete, absolute path to the file.
-        Returns:
-            The checksum and last modified timestamp for the file from the database.
-    """
-
-    checksum = None
-    last_modified = None
-    with g_conn:
-        # noinspection PyUnresolvedReferences
-        result_set = g_conn.execute("SELECT * FROM files WHERE file=?", (absolute_path_to_file,))
-        for file_data in result_set:
-            checksum = file_data["checksum"]
-            last_modified = file_data["last_modified"]
-            log_verbose("Checksum from DB ..................... " + checksum)
-            log_verbose("Last modified from DB ................ " + str(last_modified))
-        return checksum, last_modified
-
-
-def add_file_to_database(absolute_path_to_file, checksum, last_modified):
-    """
-    Add a file to the database.
-        Parameters:
-            absolute_path_to_file (str): The complete, absolute path to the file.
-            checksum (str):              The checksum of the file.
-            last_modified (timestamp):   The last modified date/time of the file.
-    """
-
-    global g_num_added
-
-    log("File " + absolute_path_to_file + " is NOT in database, adding")
-
-    # Write to database.
-    # noinspection PyUnresolvedReferences,SqlResolve
-    g_conn.execute(f"""
-        INSERT INTO files (file, checksum, last_modified) VALUES (
-            "{absolute_path_to_file}", "{checksum}", "{last_modified}"
-        )
-    """)
-    # noinspection PyUnresolvedReferences
-    g_conn.commit()
-    g_num_added += 1
-
-
-def update_status():
-    """
-    Shows a status update periodically when not in verbose mode.
-    """
-    global g_num_files_since_last_report
-    g_num_files_since_last_report += 1
-    if g_num_files_since_last_report == 10:
-        g_num_files_since_last_report = 0
-        log("Number of files processed so far: " + str(g_num_files) + " of " + str(g_total_files_to_scan))
-
-
-def convert_file_size_bytes(size):
-    """
-    Convert the length of a file in bytes to KB, MB, GB or TB (or bytes if not more than 1KB).
-        Parameters:
-            size (int): The file size in bytes.
-        Returns:
-            The file size expressed in bytes, KB, MB, GB or TB.
-    """
-    for unit in [ "bytes", "KB", "MB", "GB", "TB" ]:
-        if size < 1024.0:
-            return "%3.1f %s" % (size, unit)
-        size /= 1024.0
-
-
-def count_files_in_directory(directory, scan_subdirectories):
-    """
-    Counts the number of files in a directory, and optionally all of its subdirectories too.
-        Parameters:
-            directory (string)            The directory to scan.
-            scan_subdirectories (boolean) True to scan subdirectories as well, false if not.
-        Returns:
-            The number of files.
-    """
-    count = 0
-    if scan_subdirectories:
-        for root_dir, cur_dir, files in os.walk(directory):
-            count += len(files)
-    else:
-        for path in os.listdir(directory):
-            if os.path.isfile(os.path.join(directory, path)):
-                count += 1
-    return count
 
 
 def scan_directory(path, scan_subdirectories):
@@ -418,6 +320,65 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
             g_num_error += 1
 
 
+def get_file_from_database(absolute_path_to_file):
+    """
+    See if a file is in the database, and if it is, return its checksum and last modified, otherwise return an
+    empty string.
+        Parameters:
+            absolute_path_to_file (str): The complete, absolute path to the file.
+        Returns:
+            The checksum and last modified timestamp for the file from the database.
+    """
+
+    checksum = None
+    last_modified = None
+    with g_conn:
+        # noinspection PyUnresolvedReferences
+        result_set = g_conn.execute("SELECT * FROM files WHERE file=?", (absolute_path_to_file,))
+        for file_data in result_set:
+            checksum = file_data["checksum"]
+            last_modified = file_data["last_modified"]
+            log_verbose("Checksum from DB ..................... " + checksum)
+            log_verbose("Last modified from DB ................ " + str(last_modified))
+        return checksum, last_modified
+
+
+def add_file_to_database(absolute_path_to_file, checksum, last_modified):
+    """
+    Add a file to the database.
+        Parameters:
+            absolute_path_to_file (str): The complete, absolute path to the file.
+            checksum (str):              The checksum of the file.
+            last_modified (timestamp):   The last modified date/time of the file.
+    """
+
+    global g_num_added
+
+    log("File " + absolute_path_to_file + " is NOT in database, adding")
+
+    # Write to database.
+    # noinspection PyUnresolvedReferences,SqlResolve
+    g_conn.execute(f"""
+        INSERT INTO files (file, checksum, last_modified) VALUES (
+            "{absolute_path_to_file}", "{checksum}", "{last_modified}"
+        )
+    """)
+    # noinspection PyUnresolvedReferences
+    g_conn.commit()
+    g_num_added += 1
+
+
+def update_status():
+    """
+    Shows a status update periodically when not in verbose mode.
+    """
+    global g_num_files_since_last_report
+    g_num_files_since_last_report += 1
+    if g_num_files_since_last_report == 10:
+        g_num_files_since_last_report = 0
+        log("Number of files processed so far: " + str(g_num_files) + " of " + str(g_total_files_to_scan))
+
+
 def completion_footer(total_elapsed_time):
     """
     Print the completion footer (notification that we're done and stats from the run).
@@ -442,6 +403,103 @@ def completion_footer(total_elapsed_time):
     log("Average time per file .................................. " + str(timedelta(seconds=avg_per_file)))
 
 
+# ----------------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------- Utility Functions -------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def log(message, no_newline = False):
+    """
+    Log a regular message (will always be seen).
+        Parameters:
+            message (str):     A message to log.
+            no_newline (bool): True to NOT print a newline after the log message.
+    """
+    if no_newline:
+        print(message, end='')
+    else:
+        print(message)
+    if g_config_data["output_to_file"]:
+        # noinspection PyUnresolvedReferences
+        g_output_file.write(message + "\n")
+
+
+def log_verbose(message):
+    """
+    Log a message that should only appear when verbose mode is enabled.
+        Parameters:
+            message (string): A message to log when verbose_output is enabled.
+    """
+    if g_config_data["verbose_output"]:
+        print(message)
+        if g_config_data["output_to_file"]:
+            # noinspection PyUnresolvedReferences
+            g_output_file.write(message + "\n")
+
+
+def calculate_checksum(absolute_path_to_file):
+    """
+    Calculate a checksum (hash) of a file.
+        Parameters:
+            absolute_path_to_file (str): The complete, absolute path to the file.
+        Returns:
+            A string that is a checksum (hash) of the file using the configured hash algorithm.
+    """
+
+    # Calculate checksum (SHA256 hash).
+    with open(absolute_path_to_file, "rb") as file:
+        file_bytes = file.read()
+        if g_config_data["hash_algorithm"] == "md5":
+            checksum = hashlib.md5(file_bytes).hexdigest()
+        elif g_config_data["hash_algorithm"] == "sha1":
+            checksum = hashlib.sha1(file_bytes).hexdigest()
+        elif g_config_data["hash_algorithm"] == "sha224":
+            checksum = hashlib.sha224(file_bytes).hexdigest()
+        elif g_config_data["hash_algorithm"] == "sha256":
+            checksum = hashlib.sha256(file_bytes).hexdigest()
+        elif g_config_data["hash_algorithm"] == "sha384":
+            checksum = hashlib.sha384(file_bytes).hexdigest()
+        elif g_config_data["hash_algorithm"] == "sha512":
+            checksum = hashlib.sha512(file_bytes).hexdigest()
+    log_verbose("Calculated checksum .................. " + checksum)
+    return checksum
+
+
+def convert_file_size_bytes(size):
+    """
+    Convert the length of a file in bytes to KB, MB, GB or TB (or bytes if not more than 1KB).
+        Parameters:
+            size (int): The file size in bytes.
+        Returns:
+            The file size expressed in bytes, KB, MB, GB or TB.
+    """
+    for unit in [ "bytes", "KB", "MB", "GB", "TB" ]:
+        if size < 1024.0:
+            return "%3.1f %s" % (size, unit)
+        size /= 1024.0
+
+
+def count_files_in_directory(directory, scan_subdirectories):
+    """
+    Counts the number of files in a directory, and optionally all of its subdirectories too.
+        Parameters:
+            directory (string)            The directory to scan.
+            scan_subdirectories (boolean) True to scan subdirectories as well, false if not.
+        Returns:
+            The number of files.
+    """
+    count = 0
+    if scan_subdirectories:
+        for root_dir, cur_dir, files in os.walk(directory):
+            count += len(files)
+    else:
+        for path in os.listdir(directory):
+            if os.path.isfile(os.path.join(directory, path)):
+                count += 1
+    return count
+
+
+# ######################################################################################################################
 # ######################################################################################################################
 # ######################################################################################################################
 
@@ -466,12 +524,13 @@ def main():
     open_create_database()
     log("...Done")
 
+    log("\nValidating database...")
+    validate_database()
+    log("...Done")
+
     log("\n****************************************** Beginning Work ******************************************")
 
     start_time = time.time()
-
-# TODO: Checksum the DB file, compare against two copies stored in plain text file. This ensures the DB itself doesn't
-# get corrupted. Also, copy DB file if good, plus checksum files, so there is always a Last Known Good copy.
 
     log("\nRemoving non-existent files from database...")
     remove_nonexistent_files_from_database()
@@ -488,6 +547,8 @@ def main():
         scan_directory(current_dir["path"], current_dir["scan_subdirectories"])
 
     total_elapsed_time = time.time() - start_time
+
+    checksum_database()
 
     completion_footer(total_elapsed_time)
 
