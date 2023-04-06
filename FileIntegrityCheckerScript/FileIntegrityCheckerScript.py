@@ -61,7 +61,7 @@ def read_in_config_file():
         g_output_file.write("Logging to output file requested and started\n")
 
     # Log the config file values for reference.
-    log("config_data ... " + str(g_config_data))
+    log_verbose("config_data ... " + str(g_config_data))
 
 
 def open_create_database():
@@ -158,12 +158,13 @@ def remove_nonexistent_files_from_database():
     cursor.close()
 
 
-def scan_directory(path, scan_subdirectories):
+def scan_directory(path, scan_subdirectories, allow_file_changes):
     """
     Scans a directory and verifies all files in it, recursively calling this function again for subdirectories.
         Parameters:
             path (str):                 The complete, absolute path of the directory.
             scan_subdirectories (bool): True to scan subdirectories, false to skip them.
+            allow_file_changes (bool):  True if files are allowed to change, false if not.
     """
 
     global g_num_dirs
@@ -192,7 +193,7 @@ def scan_directory(path, scan_subdirectories):
             # function for that subdirectory, otherwise for a file just process it.
             if not entry.is_file():
                 if scan_subdirectories:
-                    scan_directory(entry.path, scan_subdirectories)
+                    scan_directory(entry.path, scan_subdirectories, allow_file_changes)
                 else:
                     continue
 
@@ -233,14 +234,17 @@ def scan_directory(path, scan_subdirectories):
                 # If file is in the database, check it.
                 else:
                     check_file(
-                        absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified
+                        absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified,
+                        allow_file_changes
                     )
 
                 log_verbose("Time taken for this file ............. " +
                     str(timedelta(seconds=time.time() - file_start_time)))
 
 
-def check_file(absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified):
+def check_file(absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified,
+    allow_file_changes
+):
     """
         Checks a file that is already in the database.  Determines if there is bit rot or possible file system
         corruption.
@@ -250,6 +254,7 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
             database_last_modified (timestamp): The last modified date/time of the file from the database.
             checksum (str):                     The checksum calculated for the file just now.
             last_modified (timestamp):          The last modified date/time of the file from the file system.
+            allow_file_changes (bool):          True if files are allowed to change, false if not.
     """
 
     global g_num_bitrot
@@ -257,35 +262,58 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
     global g_num_okay
     global g_num_updated
 
-    # If the last modified date matches, compare the checksums.
-    if last_modified == database_last_modified:
-        log_verbose("Chk 1: FS last modified matches DB ... PASS")
-        # If the checksums match, we're good.
+    # File changes ARE allowed, which means we have to do the full check procedure.
+    if allow_file_changes:
+
+        # If the last modified date matches, compare the checksums.
+        if last_modified == database_last_modified:
+            log_verbose("Chk 1: FS last modified matches DB ... PASS")
+            # If the checksums match, we're good.
+            if database_checksum == checksum:
+                log_verbose("Chk 2: Checksum matches DB ........... PASS")
+                log_verbose("File is okay")
+                g_num_okay += 1
+            # If the checksums do NOT match, it's bit rot.
+            else:
+                log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BIT ROT")
+                g_num_bitrot += 1
+
+        # If last modified does NOT match, there's more work to do.
+        else:
+            log_verbose("File system last modified does NOT match database, comparing further")
+            if last_modified > database_last_modified:
+                log_verbose("File system last modified is newer than database, updating database")
+                # noinspection PyUnresolvedReferences
+                g_conn.execute(f"""
+                    UPDATE files SET checksum=?, last_modified=? WHERE file=?
+                """, (checksum, last_modified, absolute_path_to_file))
+                # noinspection PyUnresolvedReferences
+                g_conn.commit()
+                g_num_updated += 1
+            else:
+                log("!!!!! FILE SYSTEM LAST MODIFIED IS OLDER THAN DATABASE FOR FILE " +
+                    absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION")
+                g_num_error += 1
+
+    # Files changes are NOT allowed, which means we really only care about the checksum: if the file system matches
+    # the database then we're good to go (just need to check for possible file system corruption and update the last
+    # modified time in the database), otherwise it's bit rot (and we DO NOT update the database at all in that case).
+    else:
+
         if database_checksum == checksum:
-            log_verbose("Chk 2: Checksum matches DB ........... PASS")
-            log_verbose("File is okay")
-            g_num_okay += 1
+            log_verbose("Chk 1: Checksum matches DB ........... PASS")
+            if last_modified == database_last_modified:
+                log_verbose("Chk 2: FS last modified matches DB ... PASS")
+                log_verbose("File is okay")
+                g_num_okay += 1
+            else:
+                log("!!!!! FILE SYSTEM LAST MODIFIED DIFFERS FROM DATABASE FOR FILE " +
+                    absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION")
+                g_num_error += 1
         # If the checksums do NOT match, it's bit rot.
         else:
             log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BIT ROT")
             g_num_bitrot += 1
-
-    # If last modified does NOT match, there's more work to do.
-    else:
-        log_verbose("File system last modified does NOT match database, comparing further")
-        if last_modified > database_last_modified:
-            log_verbose("File system last modified is newer than database, updating database")
-            # noinspection PyUnresolvedReferences
-            g_conn.execute(f"""
-                UPDATE files SET checksum=?, last_modified=? WHERE file=?
-            """, (checksum, last_modified, absolute_path_to_file))
-            # noinspection PyUnresolvedReferences
-            g_conn.commit()
-            g_num_updated += 1
-        else:
-            log("!!!!! FILE SYSTEM LAST MODIFIED IS OLDER THAN DATABASE FOR FILE " +
-                absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION")
-            g_num_error += 1
 
 
 def get_file_from_database(absolute_path_to_file):
@@ -510,7 +538,7 @@ def main():
 
     log("\nVerifying files...")
     for current_dir in g_config_data["directories_to_scan"]:
-        scan_directory(current_dir["path"], current_dir["scan_subdirectories"])
+        scan_directory(current_dir["path"], current_dir["scan_subdirectories"], current_dir["allow_file_changes"])
 
     total_elapsed_time = time.time() - start_time
 

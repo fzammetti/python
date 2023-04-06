@@ -12,11 +12,11 @@ an archive of files, you can scan it with this script periodically and ensure no
 
 # File integrity rules
 
-The rules applied that determine if a file as "maintained its integrity" are:
+The rules applied that determine if a file has "maintained its integrity" are:
 
-1. Any files in the database that are no longer found on the file system are removed from the database
+1. Any files in the database that are no longer found on the file system are removed from the database.
 
-2. If a file on the file system is not yet in the database, it is added to the database
+2. If a file on the file system is not yet in the database, it is added to the database.
 
 3. For files in the database that are on the file system, the last modified date/time is compared.  If that of the
    file on the file system is newer, the database entry is updated.  If it's older, this is reported as a possible
@@ -31,36 +31,52 @@ The script depends on a configuration file named **config.json** being present i
 if the file isn't found).  The format of this file is:
 
     {
-      "verbose_output": false,
+      "verbose_output": <true|false>,
       "directories_to_scan": [
-        { "path": "C:\\test\\files", "scan_subdirectories": true }
+        { "path": "<string>", "scan_subdirectories": <true|false>, "allow_file_changes": <true|false> }
       ],
-      "output_to_file": true,
-      "checksum_algorithm": "md5"
+      "output_to_file": <true|false>,
+      "checksum_algorithm": "md5|sha1|sha224|sha256|sha384|sha512"
     }
 
 The elements are:
 
-* **verbose_output** (true|false): whether you want to see verbose output in the console
+* **verbose_output**: whether you want to see verbose output in the console (and the output file, if configured
+to write to an output file.
+* **directories_to_scan**: each element in this array is an object that defines a directory you want to scan
+files in.  Each object has three REQUIRED properties:
+  * **path**: the full path to the directory.
+  * **scan_subdirectories**: determines if scanning should recurse into subdirectories (true) or
+not (false).
+  * **allow_file_changes**: determines if files are allowed to change (true) - meaning their checksum can change
+and the script will just silently update the checksum and last modified info in the database (good for files like
+documents that you expect may sometimes change) - or not (false), which is good for actual archived files that
+you expect to never change.
 
-* **directories_to_scan** (array): each element of this array is an object that defines a directory you want to scan
-files in.  Each object has two REQUIRED properties:
-  * **path**, which is the full path to the directory, and
-  * **scan_subdirectories**, which is either true or false and determines if scanning should recurse into
-subdirectories (true) or not (false)
+* **output_to_file**: whether you want the output to go to a file (true) or not (false).  The file will be
+named output.txt and will be written into the same directory as the script (any existing file will be overwritten).
 
-* **output_to_file** (true|false): whether you want the output to go to a file (true) or not (false) - the file will be
-named output.txt and will be written into the same directory as the script (any existing file will be overwritten)
-
-* **checksum_algorithm**: (md5|sha1|sha224|sha256|sha384|sha512): what checksum (hash) algorithm to use to calculate
+* **checksum_algorithm**: what checksum (hash) algorithm to use to calculate
 file checksums (note that changing this after the database has been created will cause all files to register as bit rot,
 so if you decide to change the algorithm then you should also delete the SQLite **database.db** file that was generated
-and run the script again)
+and run the script again).
 
 Note that **ALL** elements are **REQUIRED** in the config file (as they are in each element in the
 **directories_to_scan** array).  Also note that there isn't much in the way of error checking done, aside from ensuring
 the file exists, so make sure you get it right (you'll probably just get exceptions if you don't, but no explicit effort
 is made to ensure the file is valid).
+
+Here is a complete, valid config file for reference and to serve as a starting point (for use on a Windows
+system only):
+
+    {
+      "verbose_output": false,
+      "directories_to_scan": [
+        { "path": "C:\\Windows", "scan_subdirectories": true, "allow_file_changes" : false }
+      ],
+      "output_to_file": true,
+      "checksum_algorithm": "md5"
+    }
 
 # Running the script
 
