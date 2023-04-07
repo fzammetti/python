@@ -98,11 +98,11 @@ def validate_database():
     with open(absolute_path_to_db_checksum_1_file) as f:
         checksum_1 = f.readlines()[0]
         f.close()
-    log_verbose("Database file checksum 1 ............. " + str(checksum_1))
+    log_verbose("DB file checksum 1 ................... " + str(checksum_1))
     with open(absolute_path_to_db_checksum_2_file) as f:
         checksum_2 = f.readlines()[0]
         f.close()
-    log_verbose("Database file checksum 2 ............. " + str(checksum_2))
+    log_verbose("DB file checksum 2 ................... " + str(checksum_2))
     # Calculate the database file's current checksum and make sure they all match, abort if not.
     realtime_checksum = calculate_checksum(g_absolute_path_to_database_file)
     log_verbose("Realtime checksum .................... " + str(realtime_checksum))
@@ -110,7 +110,7 @@ def validate_database():
         # Make a copy of the database file.
         shutil.copyfile(g_absolute_path_to_database_file, os.path.join(g_script_directory, "database.db.backup"))
     else:
-        print("!!!!! DATABASE IS CORRUPT, ABORTING")
+        print("!!!!! DATABASE.DB IS CORRUPT, ABORTING")
         quit()
 
 
@@ -149,7 +149,7 @@ def remove_nonexistent_files_from_database():
         if number_checked % 5000 == 0:
             log("Files checked so far: " + str(number_checked))
         if not os.path.exists(row[0]):
-            log("File " + row[0] + " in database not found on file system, removing from database")
+            log("File " + row[0] + " in DB not found on FS, removing from DB")
             # noinspection PyUnresolvedReferences
             g_conn.execute(f"""DELETE FROM files WHERE file=?""", (row[0],))
             # noinspection PyUnresolvedReferences
@@ -275,14 +275,14 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
                 g_num_okay += 1
             # If the checksums do NOT match, it's bit rot.
             else:
-                log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BIT ROT")
+                log("!!!!! CHECKSUM MISMATCH ERROR (BIT ROT): " + absolute_path_to_file)
                 g_num_bitrot += 1
 
         # If last modified does NOT match, there's more work to do.
         else:
-            log_verbose("File system last modified does NOT match database, comparing further")
+            log_verbose("FS last modified does NOT match database, comparing further")
             if last_modified > database_last_modified:
-                log_verbose("File system last modified is newer than database, updating database")
+                log_verbose("FS last modified is newer than database, updating database")
                 # noinspection PyUnresolvedReferences
                 g_conn.execute(f"""
                     UPDATE files SET checksum=?, last_modified=? WHERE file=?
@@ -291,13 +291,13 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
                 g_conn.commit()
                 g_num_updated += 1
             else:
-                log("!!!!! FILE SYSTEM LAST MODIFIED IS OLDER THAN DATABASE FOR FILE " +
-                    absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION")
+                log("!!!!! FS LAST MODIFIED IS OLDER THAN DB (POSSIBLE FS CORRUPTION): " + absolute_path_to_file)
                 g_num_error += 1
 
     # Files changes are NOT allowed, which means we really only care about the checksum: if the file system matches
-    # the database then we're good to go (just need to check for possible file system corruption and update the last
-    # modified time in the database), otherwise it's bit rot (and we DO NOT update the database at all in that case).
+    # the database then we're good to go (but we still need to check for possible file system corruption and update the
+    # last modified time in the database), otherwise it's bit rot (and we DO NOT update the database at all in
+    # that case).
     else:
 
         if database_checksum == checksum:
@@ -307,12 +307,11 @@ def check_file(absolute_path_to_file, database_checksum, database_last_modified,
                 log_verbose("File is okay")
                 g_num_okay += 1
             else:
-                log("!!!!! FILE SYSTEM LAST MODIFIED DIFFERS FROM DATABASE FOR FILE " +
-                    absolute_path_to_file + " - POSSIBLE FILE SYSTEM CORRUPTION")
+                log("!!!!! FS LAST MODIFIED DIFFERS FROM DB (POSSIBLE FS CORRUPTION): " + absolute_path_to_file)
                 g_num_error += 1
         # If the checksums do NOT match, it's bit rot.
         else:
-            log("!!!!! CHECKSUM MISMATCH ERROR FOR FILE " + absolute_path_to_file + " - BIT ROT")
+            log("!!!!! CHECKSUM MISMATCH ERROR (BIT ROT): " + absolute_path_to_file)
             g_num_bitrot += 1
 
 
@@ -350,7 +349,7 @@ def add_file_to_database(absolute_path_to_file, checksum, last_modified):
 
     global g_num_added
 
-    log("File " + absolute_path_to_file + " is NOT in database, adding")
+    log("File " + absolute_path_to_file + " is NOT in DB, adding")
 
     # Write to database.
     # noinspection PyUnresolvedReferences,SqlResolve
@@ -375,6 +374,26 @@ def update_status():
         log("Number of files processed so far: " + str(g_num_files) + " of " + str(g_total_files_to_scan))
 
 
+def override_statuses():
+    """
+    This function is called when the override_status element is present in the config file.  The purpose is to
+    recalculate the checksum for a file and update it in the database (along with the last modified information).
+    This is used when the user determines that a file that had previously registered as having bit rot either hasn't,
+    in fact, become corrupt, or else it was restored to a good state, in which case the database needs to be updated
+    or else it'll continue to register as bit rot.
+    """
+    for file_to_update in g_config_data["override_status"]:
+        checksum = calculate_checksum(file_to_update)
+        last_modified = round(pathlib.Path(file_to_update).stat().st_mtime, 5)
+        log("Updating " + file_to_update + " with checksum " + checksum + " and last modified " + str(last_modified))
+        # noinspection PyUnresolvedReferences
+        g_conn.execute(f"""
+            UPDATE files SET checksum=?, last_modified=? WHERE file=?
+        """, (checksum, last_modified, file_to_update))
+        # noinspection PyUnresolvedReferences
+        g_conn.commit()
+
+
 def completion_footer(total_elapsed_time):
     """
     Print the completion footer (notification that we're done and stats from the run).
@@ -383,20 +402,21 @@ def completion_footer(total_elapsed_time):
     """
 
     log("\n********************************************* All done *********************************************\n")
-    log("End time ............................................... " + time.ctime())
-    log("Number of new files added to database .................. " + str(g_num_added))
-    log("Number of files removed from database .................. " + str(g_num_removed))
-    log("Number of files updated in database .................... " + str(g_num_updated))
-    log("Total number of directories scanned .................... " + str(g_num_dirs))
-    log("Total number of files checked .......................... " + str(g_num_files))
-    log("Number of okay files ................................... " + str(g_num_okay))
-    log("Number of files with bit rot ........................... " + str(g_num_bitrot))
-    log("Number of files with possible file system corruption ... " + str(g_num_error))
-    log("Total elapsed time ..................................... " + str(timedelta(seconds=total_elapsed_time)))
-    avg_per_file = 0
-    if g_num_files > 0:
-      avg_per_file = round(total_elapsed_time / g_num_files, 2)
-    log("Average time per file .................................. " + str(timedelta(seconds=avg_per_file)))
+    if not "override_status" in g_config_data:
+        log("End time ...................................... " + time.ctime())
+        log("Number of new files added to DB ............... " + str(g_num_added))
+        log("Number of files removed from DB ............... " + str(g_num_removed))
+        log("Number of files updated in DB ................. " + str(g_num_updated))
+        log("Total number of directories scanned ........... " + str(g_num_dirs))
+        log("Total number of files checked ................. " + str(g_num_files))
+        log("Number of okay files .......................... " + str(g_num_okay))
+        log("Number of files with bit rot .................. " + str(g_num_bitrot))
+        log("Number of files with possible FS corruption ... " + str(g_num_error))
+        log("Total elapsed time ............................ " + str(timedelta(seconds=total_elapsed_time)))
+        avg_per_file = 0
+        if g_num_files > 0:
+          avg_per_file = round(total_elapsed_time / g_num_files, 2)
+        log("Average time per file ......................... " + str(timedelta(seconds=avg_per_file)))
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -511,15 +531,15 @@ def main():
     print("\nFile Integrity Checker Script v1.0 by Frank W. Zammetti")
     print("\nStart time: " + time.ctime())
 
-    print("\nAttempting to read config file...")
+    print("\nReading config file...")
     read_in_config_file()
     log("...Done")
 
-    log("\nOpening (or creating) database...")
+    log("\nOpening (or creating) DB...")
     open_create_database()
     log("...Done")
 
-    log("\nValidating database...")
+    log("\nValidating DB...")
     validate_database()
     log("...Done")
 
@@ -527,23 +547,36 @@ def main():
 
     start_time = time.time()
 
-    log("\nRemoving non-existent files from database...")
-    remove_nonexistent_files_from_database()
-    log("...Done")
+    # If there's an override_status key in the config file then we're just going to update the specified files.
+    if "override_status" in g_config_data:
 
-    log("\nCounting files to verify...")
-    for current_dir in g_config_data["directories_to_scan"]:
-        g_total_files_to_scan += count_files_in_directory(current_dir["path"], current_dir["scan_subdirectories"])
-    log("...Done (" + str(g_total_files_to_scan) + ")")
+        log("\nOverriding statuses...")
+        override_statuses()
+        log("...Done")
 
-    log("\nVerifying files...")
-    for current_dir in g_config_data["directories_to_scan"]:
-        scan_directory(current_dir["path"], current_dir["scan_subdirectories"], current_dir["allow_file_changes"])
+    else:
 
-    total_elapsed_time = time.time() - start_time
+        log("\nRemoving non-existent files from DB...")
+        remove_nonexistent_files_from_database()
+        log("...Done")
+
+        log("\nCounting files to verify...")
+        for current_dir in g_config_data["directories_to_scan"]:
+            g_total_files_to_scan += count_files_in_directory(current_dir["path"], current_dir["scan_subdirectories"])
+        log("...Done (" + str(g_total_files_to_scan) + ")")
+
+        log("\nVerifying files...")
+        for current_dir in g_config_data["directories_to_scan"]:
+            scan_directory(current_dir["path"], current_dir["scan_subdirectories"], current_dir["allow_file_changes"])
+        log("...Done")
 
     # Recalculate and record the checksum for the database file to account for any changes during this run.
+    log("\nChecksumming database...")
     checksum_database()
+    log("...Done")
+
+    # We're all done, calculate how long the whole thing took.
+    total_elapsed_time = time.time() - start_time
 
     # Display completion footer.
     completion_footer(total_elapsed_time)
