@@ -1,6 +1,33 @@
 #!/usr/bin/env python
 
 
+
+
+
+
+
+
+
+
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# THIS VERSION IS NOT YET IN GIT
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+
+
+
+
+
+
+
+
+
+
 from datetime import timedelta
 import hashlib
 import json
@@ -10,13 +37,13 @@ import shutil
 import sqlite3
 import sys
 import time
-
+import xxhash
 
 # Global variables.
 g_script_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
 g_absolute_path_to_database_file = os.path.join(g_script_directory, "database.db")
 g_conn = None
-g_config_data = { }
+g_config_data = {}
 g_output_file = None
 g_num_added = 0
 g_num_bitrot = 0
@@ -92,7 +119,7 @@ def validate_database():
     # If both files do not exist, that should mean the database was just created, so checksum it now, which will
     # create the two checksum files.
     if not os.path.exists(absolute_path_to_db_checksum_1_file) and \
-        not os.path.exists(absolute_path_to_db_checksum_2_file):
+            not os.path.exists(absolute_path_to_db_checksum_2_file):
         checksum_database()
     # Read in the two checksum files.
     with open(absolute_path_to_db_checksum_1_file) as f:
@@ -120,11 +147,11 @@ def checksum_database():
     """
     db_checksum = calculate_checksum(g_absolute_path_to_database_file)
     with open(os.path.join(g_script_directory, "db_checksum_1.md5"), "w") as f:
-       f.write(db_checksum)
-       f.close()
+        f.write(db_checksum)
+        f.close()
     with open(os.path.join(g_script_directory, "db_checksum_2.md5"), "w") as f:
-       f.write(db_checksum)
-       f.close()
+        f.write(db_checksum)
+        f.close()
 
 
 def remove_nonexistent_files_from_database():
@@ -212,10 +239,10 @@ def scan_directory(path, scan_subdirectories, allow_file_changes):
                 log_verbose("--------------------------------------------------------------------------------------" +
                             "--------------")
                 log_verbose("File number .......................... " + str(g_num_files) + " of " +
-                    str(g_total_files_to_scan))
+                            str(g_total_files_to_scan))
                 log_verbose("Filename ............................. " + filename)
                 log_verbose("File size ............................ " +
-                    str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))))
+                            str(convert_file_size_bytes(os.path.getsize(absolute_path_to_file))))
 
                 # Calculate the checksum and last modified date of the file off the file system.  Note that the
                 # last_modified value must be rounded or else we'll lose precision when saved to SQLite (since it
@@ -239,12 +266,12 @@ def scan_directory(path, scan_subdirectories, allow_file_changes):
                     )
 
                 log_verbose("Time taken for this file ............. " +
-                    str(timedelta(seconds=time.time() - file_start_time)))
+                            str(timedelta(seconds = time.time() - file_start_time)))
 
 
 def check_file(absolute_path_to_file, database_checksum, database_last_modified, checksum, last_modified,
-    allow_file_changes
-):
+               allow_file_changes
+               ):
     """
         Checks a file that is already in the database.  Determines if there is bit rot or possible file system
         corruption.
@@ -402,7 +429,7 @@ def completion_footer(total_elapsed_time):
     """
 
     log("\n********************************************* All done *********************************************\n")
-    if not "override_status" in g_config_data:
+    if "override_status" not in g_config_data:
         log("End time ...................................... " + time.ctime())
         log("Number of new files added to DB ............... " + str(g_num_added))
         log("Number of files removed from DB ............... " + str(g_num_removed))
@@ -412,11 +439,11 @@ def completion_footer(total_elapsed_time):
         log("Number of okay files .......................... " + str(g_num_okay))
         log("Number of files with bit rot .................. " + str(g_num_bitrot))
         log("Number of files with possible FS corruption ... " + str(g_num_error))
-        log("Total elapsed time ............................ " + str(timedelta(seconds=total_elapsed_time)))
+        log("Total elapsed time ............................ " + str(timedelta(seconds = total_elapsed_time)))
         avg_per_file = 0
         if g_num_files > 0:
-          avg_per_file = round(total_elapsed_time / g_num_files, 2)
-        log("Average time per file ......................... " + str(timedelta(seconds=avg_per_file)))
+            avg_per_file = round(total_elapsed_time / g_num_files, 2)
+        log("Average time per file ......................... " + str(timedelta(seconds = avg_per_file)))
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -432,7 +459,7 @@ def log(message, no_newline = False):
             no_newline (bool): True to NOT print a newline after the log message.
     """
     if no_newline:
-        print(message, end='')
+        print(message, end = '')
     else:
         print(message)
     if g_config_data["output_to_file"]:
@@ -476,6 +503,8 @@ def calculate_checksum(absolute_path_to_file):
             checksum = hashlib.sha384(file_bytes).hexdigest()
         elif g_config_data["checksum_algorithm"] == "sha512":
             checksum = hashlib.sha512(file_bytes).hexdigest()
+        elif g_config_data["checksum_algorithm"] == "xxhash":
+            checksum = xxhash.xxh64(file_bytes).hexdigest()
     log_verbose("Calculated checksum .................. " + checksum)
     return checksum
 
@@ -488,7 +517,7 @@ def convert_file_size_bytes(size):
         Returns:
             The file size expressed in bytes, KB, MB, GB or TB.
     """
-    for unit in [ "bytes", "KB", "MB", "GB", "TB" ]:
+    for unit in ["bytes", "KB", "MB", "GB", "TB"]:
         if size < 1024.0:
             return "%3.1f %s" % (size, unit)
         size /= 1024.0
